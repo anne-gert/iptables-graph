@@ -185,8 +185,9 @@ sub render_graph
 	my $ColorBlock = "#ffcccc";  # block a packet
 	my $ColorAllow = "#ccffcc";  # allow a packet
 	my $ColorModify = "#ffffcc";  # modify a packet
-	my $ColorNeutral = "#eeeeee";  # non-changing processing, like LOG
-	my $ColorUnknown = "#999999";  # not any of the above
+	my $ColorLog = "#999999";  # non-changing processing, like LOG
+	my $ColorJump = "#ccffff";  # jump/return to other chain
+	my $ColorUnknown = "#eeeeee";  # not any of the above
 	my %KnownTarget = (
 		ACCEPT => {
 			color => $ColorAllow,
@@ -217,11 +218,11 @@ sub render_graph
 			terminating => 1,
 		},
 		LOG => {
-			color => $ColorNeutral,
+			color => $ColorLog,
 			terminating => 0,
 		},
 		RETURN => {
-			color => $ColorNeutral,
+			color => $ColorJump,
 			terminating => 0,
 		}
 	);
@@ -249,7 +250,7 @@ sub render_graph
 				else
 				{
 					# Target is other chain
-					$color = $ColorNeutral;
+					$color = $ColorJump;
 					# Edge to other chain
 					push @edges, qq($nodeID -> $start{$target});
 				}
