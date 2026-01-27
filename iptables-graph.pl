@@ -129,7 +129,7 @@ sub render_graph
 		}
 		elsif ($rule =~ m{^
 			\s*(\S+)\s+(\S+)            # number of packets / bytes
-			\s+(\S+)\s+(\d+)\s+(\S+)    # target / protocol / options
+			\s+(\S+)\s+(\S+)\s+(\S+)    # target / protocol / options
 			\s+(\S+)\s+(\S+)            # input / output
 			\s+(\S+)\s+(\S+)            # source / destination
 			(?:\s+(.*?))?\s*            # optional arguments
@@ -153,7 +153,7 @@ sub render_graph
 			{
 				# No protocol
 			}
-			elsif (defined $protocols{1*$protocol})
+			elsif ($protocol =~ /^\d+$/ && defined $protocols{1*$protocol})
 			{
 				$rule{protocol} = $protocols{1*$protocol};
 			}
@@ -271,7 +271,7 @@ sub render_graph
 					# This is a LOG rule
 					($arguments, $log_prefix) = ($1, $2);
 				}
-				if ($protocol && $arguments !~ /\b\Q$protocol\E\b/i)
+				if ($protocol && $protocol ne "all" && $arguments !~ /\b\Q$protocol\E\b/i)
 				{
 					# Protocol is set and it is not included in the arguments
 					push @text, "p=$protocol";
