@@ -210,7 +210,7 @@ sub render_graph
 				qr/level\s+\d+/,
 				qr/prefix\s+"[^"]*"/,
 			];
-			push @extra, "log-prefix $1" if $matched =~ /prefix\s+("[^"]+")/;
+			push @extra, "log $1" if $matched =~ /prefix\s+("[^"]+")/;
 			# Match LIMIT options
 			my $matched = match_out \$arguments, "limit:", [
 				qr/avg\s+\d+\/\w+/,
@@ -261,6 +261,15 @@ sub render_graph
 			push @{$rules{$currChain} ||= []}, \%rule;  # add the rule
 
 			$start{$currChain} ||= "S" . $genID;  # set the start if this is the first
+
+			if (!defined $start{$target})
+			{
+				# This target has not been seen before.
+				# Reserve the name.
+				# This also ensures the chain will be rendered
+				# even if it has no rules.
+				$start{$target} = undef;
+			}
 		}
 		else
 		{
@@ -317,14 +326,43 @@ sub render_graph
 			terminating => 0,
 		}
 	);
+	foreach my $chain (sort keys %start)
+	{
+		if ($KnownTarget{$chain} || $start{$chain})
+		{
+			# It is a standard target`or it has a startID
+		}
+		else
+		{
+			# It has a nodeID
+			my $rules = $rules{$chain};
+			if ($rules && @$rules)
+			{
+				# There are rules, but no startID. This is strange.
+				print "ERROR: Chain '$chain' has no startID\n";
+			}
+			else
+			{
+				# There are no rules.
+				print "WARNING: Chain '$chain' is empty\n";
+				$rules{$chain} = [];
+			}
+			$start{$chain} = "S" . ++$genID;
+		}
+	}
 	my (@nodes, @edges);
 	foreach my $chain (sort keys %rules)
 	{
+		# Render first pseudo-node with chain name
+		my $startID = $start{$chain};
+		push @nodes, qq($startID [fillcolor="$ColorStart", style=filled shape=box label="$chain"]);
+		my $prevID = $startID;
+		my @items = ();  # node data objects
+
 		my $rules = $rules{$chain};
-		if (@$rules > 0)
+		if ($rules && @$rules > 0)
 		{
 			# Preprocess rules
-			my @items = ();  # node data objects
 			foreach my $rule (@$rules)
 			{
 				my $nodeID = $$rule{id};
@@ -398,12 +436,7 @@ sub render_graph
 			}
 			@items = grep $_, @items;  # filter out deleted ones
 
-			# Render first pseudo-node with chain name
-			my $startID = $start{$chain};
-			push @nodes, qq($startID [fillcolor="$ColorStart", style=filled shape=box label="$chain"]);
-
 			# Render items as nodes
-			my $prevID = $startID;
 			foreach my $item (@items)
 			{
 				my ($nodeID, $target, $extra_targets, $selector, $extra) =
@@ -439,55 +472,55 @@ sub render_graph
 				push @edges, qq($prevID -> $nodeID);
 				$prevID = $nodeID;
 			}
+		}
 
-			# Render the end of the chain as a pseudo-node too
-			my ($pseudoTarget, $targetType);
-			if (my $policy = $policy{$chain})
+		# Render the end of the chain as a pseudo-node too
+		my ($pseudoTarget, $targetType);
+		if (my $policy = $policy{$chain})
+		{
+			# This chain has a policy
+			$pseudoTarget = $policy;
+			$targetType = "Policy";
+		}
+		else
+		{
+			# A chain without a policy implicitly returns
+			$pseudoTarget = "RETURN";
+			$targetType = "Implicit";
+			# If the last rule does an unconditional jump, showing
+			# the implicit return is superfluous.
+			if (@items)
 			{
-				# This chain has a policy
-				$pseudoTarget = $policy;
-				$targetType = "Policy";
+				my $last = $items[-1];
+				my ($sel, $ex, $tgt) = @$last{qw/selector extra target/};
+				my $unconditional = (!$sel || !@$sel);
+				my $def = $KnownTarget{$tgt};
+				my $jump = !$def ||  # assume unknown targets are jumps
+					$$def{terminating};  # or terminating targets
+				if ($unconditional && $jump)
+				{
+					$targetType = undef;
+				}
+			}
+		}
+		if (defined $targetType)
+		{
+			my $endID = "E" . ++$genID;
+			my $nodeDef = $KnownTarget{$pseudoTarget};
+			my $color;
+			if ($nodeDef)
+			{
+				$color = $$nodeDef{color};
 			}
 			else
 			{
-				# A chain without a policy implicitly returns
-				$pseudoTarget = "RETURN";
-				$targetType = "Implicit";
-				# If the last rule does an unconditional jump, showing
-				# the implicit return is superfluous.
-				if (@items)
-				{
-					my $last = $items[-1];
-					my ($sel, $ex, $tgt) = @$last{qw/selector extra target/};
-					my $unconditional = (!$sel || !@$sel);
-					my $def = $KnownTarget{$tgt};
-					my $jump = !$def ||  # assume unknown targets are jumps
-						$$def{terminating};  # or terminating targets
-					if ($unconditional && $jump)
-					{
-						$targetType = undef;
-					}
-				}
+				$color = $ColorUnknown;
 			}
-			if (defined $targetType)
-			{
-				my $endID = "E" . ++$genID;
-				my $nodeDef = $KnownTarget{$pseudoTarget};
-				my $color;
-				if ($nodeDef)
-				{
-					$color = $$nodeDef{color};
-				}
-				else
-				{
-					$color = $ColorUnknown;
-				}
-				my $text = join "\n", $targetType, $pseudoTarget;
-				# Render node
-				push @nodes, qq($endID [fillcolor="$color" style=filled shape=box label="$text"]);
-				# Render edge to it
-				push @edges, qq($prevID -> $endID);
-			}
+			my $text = join "\n", $targetType, $pseudoTarget;
+			# Render node
+			push @nodes, qq($endID [fillcolor="$color" style=filled shape=box label="$text"]);
+			# Render edge to it
+			push @edges, qq($prevID -> $endID);
 		}
 	}
 
@@ -510,7 +543,7 @@ sub render_image
 
 	# Render to an image
 	my ($out_fh, $temp_fname) = tempfile SUFFIX => ".gv", UNLINK => 1;
-	#my $temp_fname = "output-$table.gv"; open my $out_fh, ">", $temp_fname or die "Cannot open '$temp_fname': $!";
+	#my $temp_fname = "output-$name.gv"; open my $out_fh, ">", $temp_fname or die "Cannot open '$temp_fname': $!";
 	print "Using temp file '$temp_fname'\n";
 	print $out_fh $output or die "Cannot write to '$temp_fname': $!";
 	close $out_fh or die "Cannot close '$temp_fname': $!";
