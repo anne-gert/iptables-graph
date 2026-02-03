@@ -304,6 +304,24 @@ sub render_graph
 					$$item{extra_targets} = [ $prevTarget ];
 					$items[$i-1] = undef;
 				}
+
+				# If both nodes are non-special and have the same target
+				if (!$prevDef && !$itemDef && $prevTarget eq $target)
+				{
+					# Prepend selector
+					if (@{$$prev{selector}})
+					{
+						unshift @{$$item{selector}}, "OR";
+						unshift @{$$item{selector}}, @{$$prev{selector}};
+					}
+					# Prepend extra
+					if (@{$$prev{extra}})
+					{
+						unshift @{$$item{extra}}, "OR";
+						unshift @{$$item{extra}}, @{$$prev{extra}};
+					}
+					$items[$i-1] = undef;
+				}
 			}
 			@items = grep $_, @items;  # filter out deleted ones
 
