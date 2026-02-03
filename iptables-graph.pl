@@ -143,30 +143,120 @@ sub render_graph
 				$arguments) =
 				($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
+			# Beautify protocol
+			if ($protocol =~ /^0*$/ || $protocol eq "all")
+			{
+				$protocol = undef;
+			}
+			elsif ($protocol =~ /^\d+$/ && defined $protocols{1*$protocol})
+			{
+				$protocol = $protocols{1*$protocol};
+			}
+
+			# Split arguments in limiting arguments (filter) and
+			# controlling arguments (extra).
+			sub match_out
+			{
+				my ($textref, $prefix, $options) = @_;
+
+				my $options = "(?:" . (join "|", @$options) . ")";  # OR-ing options
+				my $re = qr/(?<opt>$options(?:\s+$options)*)/;  # sequence of 1..n
+				if ($prefix ne "")
+				{
+					$re = qr/\b$prefix\s+$re/;
+				}
+
+				my $matched = undef;
+				$$textref =~ s/$re/$matched = $+{opt}; ""/e;  # take out matched
+				return $matched;
+			}
+
+			# Get out the filtering options
+			my @filter;
+			push @filter, $protocol if $protocol;
+			# Match UDP/TCP port options
+			my $matched = match_out \$arguments, qr/(?:udp|tcp)/, [
+				qr/(?:dpt|spt):\d+/,
+				qr/(?:dpts|spts):\d+:\d+/,
+				qr/flags:[\dx\/]+/,
+			];
+			push @filter, $matched if $matched;
+			# Match MULTIPORT options
+			my $matched = match_out \$arguments, "multiport", [
+				qr/[ds]ports\s+[\d,]+/,
+			];
+			push @filter, $matched if $matched;
+			# Match STATE options
+			my $matched = match_out \$arguments, "", [
+				qr/state\s+[A-Z,]+/,
+			];
+			push @filter, $matched if $matched;
+			# Match ICMP options
+			my $matched = match_out \$arguments, "", [
+				qr/icmptype\s+\d+/,
+			];
+			push @filter, $matched if $matched;
+			# Match match-set options
+			my $matched = match_out \$arguments, "match-set", [
+				qr/[\w-]+/,
+			];
+			push @filter, $matched if $matched;
+
+			# Get out the extra options
+			my @extra;
+			# - Match LOG options
+			my $matched = match_out \$arguments, "LOG", [
+				qr/flags\s+\d+/,
+				qr/level\s+\d+/,
+				qr/prefix\s+"[^"]*"/,
+			];
+			push @extra, "log-prefix $1" if $matched =~ /prefix\s+("[^"]+")/;
+			# Match LIMIT options
+			my $matched = match_out \$arguments, "limit:", [
+				qr/avg\s+\d+\/\w+/,
+				qr/burst\s+\d+/,
+			];
+			push @extra, "rate-limited" if $matched;
+			# Match REJECT options
+			my $matched = match_out \$arguments, "", [
+				qr/reject-with\s+\S+/,
+			];
+			push @extra, $1 if $matched =~ / (.+)/;
+			# Match REDIRECT options
+			my $matched = match_out \$arguments, "redir", [
+				qr/ports\s+\d+/,
+			];
+			push @extra, $matched if $matched;
+			# Match REDIRECT options
+			my $matched = match_out \$arguments, "", [
+				qr/to:\S+/,
+			];
+			push @extra, $matched if $matched;
+
+			# Arguments should be empty now, print error if it isn't
+			if ($arguments =~ /\S/)
+			{
+				print "ERROR: Unmatched arguments: '$arguments'\n";
+				# Clean-up and add to @extra
+				$arguments =~ s/^\s+//;
+				$arguments =~ s/\s+$//;
+				$arguments =~ s/\s+/ /g;
+				push @extra, $arguments;
+			}
+
 			my $nodeID = "N" . ++$genID;
 			my %rule = (
 				#chain => $currChain,
 				target => $target,
 				id => $nodeID,
 			);
-			if ($protocol =~ /^0*$/)
-			{
-				# No protocol
-			}
-			elsif ($protocol =~ /^\d+$/ && defined $protocols{1*$protocol})
-			{
-				$rule{protocol} = $protocols{1*$protocol};
-			}
-			else
-			{
-				$rule{protocol} = $protocol;
-			}
 			$rule{options} = $options unless $options =~ /^-*$/;
 			$rule{input} = $input unless $input eq "*";
 			$rule{output} = $output unless $output eq "*";
 			$rule{source} = $source unless $source eq "0.0.0.0/0";
 			$rule{destination} = $destination unless $destination eq "0.0.0.0/0";
-			$rule{arguments} = $arguments unless $arguments eq "";
+			$rule{filter} = \@filter if @filter;
+			$rule{extra} = \@extra if @extra;
 
 			push @{$rules{$currChain} ||= []}, \%rule;  # add the rule
 
@@ -246,41 +336,24 @@ sub render_graph
 				my $output = $$rule{output};
 				my $source = $$rule{source};
 				my $destination = $$rule{destination};
-				my $protocol = $$rule{protocol};
-				my $arguments = $$rule{arguments};
+				my $filter = $$rule{filter};
 				push @selector, "i=$input" if $input;
 				push @selector, "o=$output" if $output;
 				push @selector, "s=$source" if $source;
 				push @selector, "d=$destination" if $destination;
-				my $log_prefix;
-				if ($arguments =~ /^\s*(?:(.*?)\s+)?LOG\s.*?prefix\s*"(.*)"/)
-				{
-					# This is a LOG rule
-					($arguments, $log_prefix) = ($1, $2);
-				}
-				if ($protocol && $protocol ne "all" && $arguments !~ /\b\Q$protocol\E\b/i)
-				{
-					# Protocol is set and it is not included in the arguments
-					push @selector, "p=$protocol";
-				}
-				if ($arguments)
-				{
-					push @selector, $arguments;  # may include protocol
-				}
+				push @selector, join " ", @$filter if $filter;
 
 				# Extra arguments
 				my @extra;
-				if ($log_prefix)
-				{
-					push @extra, "prefix=\"$log_prefix\"";
-				}
+				my $extra = $$rule{extra};
+				push @extra, join " ", @$extra if $extra;
 
 				# Add data as item
 				push @items, {
 					id       => $nodeID,
 					target   => $target,
 					selector => \@selector,
-					extra    => \@extra
+					extra    => \@extra,
 				};
 			}
 
