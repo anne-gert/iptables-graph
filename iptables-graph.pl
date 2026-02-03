@@ -441,7 +441,6 @@ sub render_graph
 			}
 
 			# Render the end of the chain as a pseudo-node too
-			my $endID = "E" . ++$genID;
 			my ($pseudoTarget, $targetType);
 			if (my $policy = $policy{$chain})
 			{
@@ -454,22 +453,41 @@ sub render_graph
 				# A chain without a policy implicitly returns
 				$pseudoTarget = "RETURN";
 				$targetType = "Implicit";
+				# If the last rule does an unconditional jump, showing
+				# the implicit return is superfluous.
+				if (@items)
+				{
+					my $last = $items[-1];
+					my ($sel, $ex, $tgt) = @$last{qw/selector extra target/};
+					my $unconditional = (!$sel || !@$sel);
+					my $def = $KnownTarget{$tgt};
+					my $jump = !$def ||  # assume unknown targets are jumps
+						$$def{terminating};  # or terminating targets
+					if ($unconditional && $jump)
+					{
+						$targetType = undef;
+					}
+				}
 			}
-			my $nodeDef = $KnownTarget{$pseudoTarget};
-			my $color;
-			if ($nodeDef)
+			if (defined $targetType)
 			{
-				$color = $$nodeDef{color};
+				my $endID = "E" . ++$genID;
+				my $nodeDef = $KnownTarget{$pseudoTarget};
+				my $color;
+				if ($nodeDef)
+				{
+					$color = $$nodeDef{color};
+				}
+				else
+				{
+					$color = $ColorUnknown;
+				}
+				my $text = join "\n", $targetType, $pseudoTarget;
+				# Render node
+				push @nodes, qq($endID [fillcolor="$color" style=filled shape=box label="$text"]);
+				# Render edge to it
+				push @edges, qq($prevID -> $endID);
 			}
-			else
-			{
-				$color = $ColorUnknown;
-			}
-			my $text = join "\n", $targetType, $pseudoTarget;
-			# Render node
-			push @nodes, qq($endID [fillcolor="$color" style=filled shape=box label="$text"]);
-			# Render edge to it
-			push @edges, qq($prevID -> $endID);
 		}
 	}
 
