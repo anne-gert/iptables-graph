@@ -220,6 +220,7 @@ sub render_graph
 		LOG => {
 			color => $ColorLog,
 			terminating => 0,
+			fold => "optional",
 		},
 		RETURN => {
 			color => $ColorJump,
@@ -283,15 +284,39 @@ sub render_graph
 				};
 			}
 
+			# Fold foldable nodes
+			for (my $i = 1; $i < @items; ++$i)
+			{
+				my $prev = $items[$i-1];
+				my $prevTarget = $$prev{target};
+				my $prevSelector = join " ", @{$$prev{selector}};
+				my $prevDef = $KnownTarget{$prevTarget};
+
+				my $item = $items[$i];
+				my $target = $$item{target};
+				my $selector = join " ", @{$$item{selector}};
+				my $itemDef = $KnownTarget{$target};
+
+				# If the previous is opional and the selectors are te same
+				if ($prevDef && $$prevDef{fold} eq "optional" && $prevSelector eq $selector)
+				{
+					push @{$$item{extra}}, @{$$prev{extra}};
+					$$item{extra_targets} = [ $prevTarget ];
+					$items[$i-1] = undef;
+				}
+			}
+			@items = grep $_, @items;  # filter out deleted ones
+
 			# Render first pseudo-node with chain name
 			my $startID = $start{$chain};
 			push @nodes, qq($startID [fillcolor="$ColorStart", style=filled shape=box label="$chain"]);
+
 			# Render items as nodes
 			my $prevID = $startID;
 			foreach my $item (@items)
 			{
-				my ($nodeID, $target, $selector, $extra) =
-					@$item{qw/id target selector extra/};
+				my ($nodeID, $target, $extra_targets, $selector, $extra) =
+					@$item{qw/id target extra_targets selector extra/};
 
 				# Derive color
 				my $nodeDef = $KnownTarget{$target};
@@ -310,7 +335,11 @@ sub render_graph
 				}
 
 				# Render text
-				my $text = join "\n", @$selector, @$extra, $target;
+				my @targets;
+				push @targets, @$extra_targets if $extra_targets;
+				push @targets, $target;
+				my $targets = join " + ", @targets;
+				my $text = join "\n", @$selector, @$extra, $targets;
 				$text =~ s/"/\\"/g;  # escape '"'
 
 				# Render node & edge
