@@ -232,14 +232,68 @@ sub render_graph
 		my $rules = $rules{$chain};
 		if (@$rules > 0)
 		{
-			# Create first pseudo-node with chain name
-			my $startID = $start{$chain};
-			push @nodes, qq($startID [fillcolor="$ColorStart", style=filled shape=box label="$chain"]);
-			my $prevID = $startID;
+			# Preprocess rules
+			my @items = ();  # node data objects
 			foreach my $rule (@$rules)
 			{
 				my $nodeID = $$rule{id};
 				my $target = $$rule{target};
+
+				# Selector
+				my @selector;
+				my $input = $$rule{input};
+				my $output = $$rule{output};
+				my $source = $$rule{source};
+				my $destination = $$rule{destination};
+				my $protocol = $$rule{protocol};
+				my $arguments = $$rule{arguments};
+				push @selector, "i=$input" if $input;
+				push @selector, "o=$output" if $output;
+				push @selector, "s=$source" if $source;
+				push @selector, "d=$destination" if $destination;
+				my $log_prefix;
+				if ($arguments =~ /^\s*(?:(.*?)\s+)?LOG\s.*?prefix\s*"(.*)"/)
+				{
+					# This is a LOG rule
+					($arguments, $log_prefix) = ($1, $2);
+				}
+				if ($protocol && $protocol ne "all" && $arguments !~ /\b\Q$protocol\E\b/i)
+				{
+					# Protocol is set and it is not included in the arguments
+					push @selector, "p=$protocol";
+				}
+				if ($arguments)
+				{
+					push @selector, $arguments;  # may include protocol
+				}
+
+				# Extra arguments
+				my @extra;
+				if ($log_prefix)
+				{
+					push @extra, "prefix=\"$log_prefix\"";
+				}
+
+				# Add data as item
+				push @items, {
+					id       => $nodeID,
+					target   => $target,
+					selector => \@selector,
+					extra    => \@extra
+				};
+			}
+
+			# Render first pseudo-node with chain name
+			my $startID = $start{$chain};
+			push @nodes, qq($startID [fillcolor="$ColorStart", style=filled shape=box label="$chain"]);
+			# Render items as nodes
+			my $prevID = $startID;
+			foreach my $item (@items)
+			{
+				my ($nodeID, $target, $selector, $extra) =
+					@$item{qw/id target selector extra/};
+
+				# Derive color
 				my $nodeDef = $KnownTarget{$target};
 				my $color;
 				if ($nodeDef)
@@ -254,47 +308,19 @@ sub render_graph
 					# Edge to other chain
 					push @edges, qq($nodeID -> $start{$target});
 				}
-				# Create text to display for this node
-				my @text;
-				my $input = $$rule{input};
-				my $output = $$rule{output};
-				my $source = $$rule{source};
-				my $destination = $$rule{destination};
-				my $protocol = $$rule{protocol};
-				my $arguments = $$rule{arguments};
-				push @text, "i=$input" if $input;
-				push @text, "o=$output" if $output;
-				push @text, "s=$source" if $source;
-				push @text, "d=$destination" if $destination;
-				my $log_prefix;
-				if ($arguments =~ /^\s*(?:(.*?)\s+)?LOG\s.*?prefix\s*"(.*)"/)
-				{
-					# This is a LOG rule
-					($arguments, $log_prefix) = ($1, $2);
-				}
-				if ($protocol && $protocol ne "all" && $arguments !~ /\b\Q$protocol\E\b/i)
-				{
-					# Protocol is set and it is not included in the arguments
-					push @text, "p=$protocol";
-				}
-				if ($arguments)
-				{
-					push @text, $arguments;  # includes protocol
-				}
-				if ($log_prefix)
-				{
-					push @text, "prefix=\"$log_prefix\"";
-				}
-				push @text, $target;
-				my $text = join "\n", @text;
+
+				# Render text
+				my $text = join "\n", @$selector, @$extra, $target;
 				$text =~ s/"/\\"/g;  # escape '"'
-				# Render node
+
+				# Render node & edge
 				push @nodes, qq($nodeID [fillcolor="$color" style=filled label="$text"]);
 				# Render edge to it
 				push @edges, qq($prevID -> $nodeID);
 				$prevID = $nodeID;
 			}
-			# Draw the end of the chain as a pseudo-node too
+
+			# Render the end of the chain as a pseudo-node too
 			my $endID = "E" . ++$genID;
 			my ($pseudoTarget, $targetType);
 			if (my $policy = $policy{$chain})
