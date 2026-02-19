@@ -28,6 +28,13 @@
 use strict;
 use File::Temp qw/tempfile/;
 
+my @OutFormats = (
+	[ "png", "png" ],
+	[ "svg", "svg" ],
+	#[ "txt", "ascii" ],  # use the ascii target of GraphViz if available
+	[ "txt", "easy" ],  # use the Graph::Easy Perl module
+);
+
 my $input_iptables = 0;
 my $input_files = 0;
 if (@ARGV > 0)
@@ -548,9 +555,43 @@ sub render_image
 	print $out_fh $output or die "Cannot write to '$temp_fname': $!";
 	close $out_fh or die "Cannot close '$temp_fname': $!";
 
-	my $out_fname = "$name.png";
-	print "Render image '$out_fname'\n";
-	system $dot_cmd, $temp_fname, "-Tpng", "-o$out_fname";
+	foreach my $outformat (@OutFormats)
+	{
+		my ($ext, $type) = @$outformat;
+		my $out_fname = "$name.$ext";
+		print "Render image '$out_fname'\n";
+		if ($type ne "easy")
+		{
+			system $dot_cmd, $temp_fname, "-T$type", "-o$out_fname";
+		}
+		else
+		{
+			my @extra = (
+				"Graph::Easy::Parser::Graphviz",
+				"Graph::Easy",
+			);
+			my $ok = 1;
+			foreach (@extra)
+			{
+				unless (eval "require $_")
+				{
+					print "ERROR: Module '$_' not available\n";
+					$ok = 0;
+				}
+			}
+			if ($ok)
+			{
+				my $parser = Graph::Easy::Parser::Graphviz->new();
+				my $graph = $parser->from_file($temp_fname);
+				if (open my $fh, ">:encoding(utf8)", $out_fname)
+				{
+					#print $fh $graph->as_ascii();
+					print $fh $graph->as_boxart();
+					close $fh;
+				}
+			}
+		}
+	}
 
 	#unlink $temp_fname;
 }
