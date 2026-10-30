@@ -212,9 +212,9 @@ sub render_graph
 				qr/[ds]ports\s+[\d,]+/,
 			];
 			push @filter, $matched if $matched;
-			# Match STATE options
+			# Match STATE/CTSTATE options
 			my $matched = match_out \$arguments, "", [
-				qr/state\s+[A-Z,]+/,
+				qr/(ct)?state\s+[A-Z,]+/,
 			];
 			push @filter, $matched if $matched;
 			# Match ICMP options
