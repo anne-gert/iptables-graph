@@ -10,15 +10,23 @@ to discover the rules. Otherwise, it expects it expects the input files to
 contain a dump of 'iptables -L -n -v' (or equivalent). A file name may be
 '-' to use stdin.
 
-The output filename is reported on stdout.
+The output filename is printed to stdout.
+
+Use the following flags for output format, multiple are allowed;
+- --png: Use PNG image (default)
+- --svg: Use SVG image
+- --ascii: Use 'ascii' target of GraphViz (if installed)
+- --easy: Use Graph::Easy Perl module
 
 Examples:
+
+Render image with chains of filter table. Script does not run as root:
 
 ```bash
 $ sudo iptables -L -v -n | ./iptables-graph.pl -
 ```
 
-Render image with chains of filter table. Script does not run as root.
+Render image with chains of filter and nat tables:
 
 ```bash
 $ sudo iptables -t filter -L -v -n > iptables-filter.rules
@@ -26,11 +34,9 @@ $ sudo iptables -t nat -L -v -n > iptables-nat.rules
 $ ./iptables-graph.pl iptables-filter.rules iptables-nat.rules
 ```
 
-Render image with chains of filter and nat tables.
+Render images with chains of all (standard) tables:
 
 ```bash
 # ./iptables-graph.pl
 ```
-
-Render images with chains of all (standard) tables.
 

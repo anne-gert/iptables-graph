@@ -7,40 +7,58 @@
 # to discover the rules. Otherwise, it expects it expects the input files to
 # contain a dump of 'iptables -L -n -v' (or equivalent). A file name may be
 # '-' to use stdin.
-# The output filename is reported on stdout.
+# The output filename is printed to stdout.
+#
+# Use the following flags for output format, multiple are allowed;
+# --png: Use PNG image (default)
+# --svg: Use SVG image
+# --ascii: Use 'ascii' target of GraphViz (if installed)
+# --easy: Use Graph::Easy Perl module
 #
 # Examples:
 #
+# Render image with chains of filter table. Script does not run as root:
+#
 # $ sudo iptables -L -v -n | ./iptables-graph.pl -
 #
-# Render image with chains of filter table. Script does not run as root.
+# Render image with chains of filter and nat tables:
 #
 # $ sudo iptables -t filter -L -v -n > iptables-filter.rules
 # $ sudo iptables -t nat -L -v -n > iptables-nat.rules
 # $ ./iptables-graph.pl iptables-filter.rules iptables-nat.rules
 #
-# Render image with chains of filter and nat tables.
+# Render images with chains of all (standard) tables:
 #
 # # ./iptables-graph.pl
-#
-# Render images with chains of all (standard) tables.
 
 use strict;
 use File::Temp qw/tempfile/;
 
-my @OutFormats = (
-	[ "png", "png" ],
-	[ "svg", "svg" ],
-	#[ "txt", "ascii" ],  # use the ascii target of GraphViz if available
-	[ "txt", "easy" ],  # use the Graph::Easy Perl module
+my %OutFormats = (  # render-type -> file-extension options
+	png => "png",
+	svg => "svg",
+	ascii => "txt",  # use the ascii target of GraphViz if installed
+	easy => "txt",  # use the Graph::Easy Perl module
 );
+my @OutFormats = ();
 
 my $input_iptables = 0;
 my $input_files = 0;
 if (@ARGV > 0)
 {
 	# There are arguments, use those
-	$input_files = [ @ARGV ];
+	foreach (@ARGV)
+	{
+		if (/^--(png|svg|ascii|easy)$/i)
+		{
+			push @OutFormats, lc $1;
+		}
+		else
+		{
+			$input_files = [] unless $input_files;
+			push @$input_files, $_;
+		}
+	}
 }
 elsif ($> == 0)
 {
@@ -53,6 +71,7 @@ else
 	# No suitable input.
 	die "This program should be run as root or input files should be provided on the commandline ('-' for stdin).\n";
 }
+push @OutFormats, "png" unless @OutFormats;
 
 sub find_command
 {
@@ -555,9 +574,9 @@ sub render_image
 	print $out_fh $output or die "Cannot write to '$temp_fname': $!";
 	close $out_fh or die "Cannot close '$temp_fname': $!";
 
-	foreach my $outformat (@OutFormats)
+	foreach my $type (@OutFormats)
 	{
-		my ($ext, $type) = @$outformat;
+		my $ext = $OutFormats{$type};
 		my $out_fname = "$name.$ext";
 		print "Render image '$out_fname'\n";
 		if ($type ne "easy")
